@@ -379,7 +379,7 @@ def main():
         'normal_consistency_error',
     ]
     
-    print_metrics_table(methods_dict, key_metrics=key_metrics)
+    print_metrics_table(methods_dict, target_names=key_metrics)
     
     # Save metrics to CSV
     print("\n6.3 Saving metrics to CSV...")

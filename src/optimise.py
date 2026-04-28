@@ -23,7 +23,7 @@ def optimize_mesh_objective(
     lambda_pos=0.01,
     enable_dynamic_schedule=True,
     lambda_decay_start=0.7,
-    lr_decay_start=0.7,
+    lr_decay_start=0.4,
     min_lr_scale=0.1,
     device='cpu',
     verbose=True,
