@@ -1,35 +1,52 @@
-# Curvature-Guided Mesh Optimization
+# Mesh Optimization via Multi-Objective Matching
 
-A Python implementation of oracle mesh-space curvature matching for proof-of-concept mesh optimization.
+A comprehensive Python implementation of mesh optimization using gradient-based methods. Supports curvature, depth, and normal matching on both synthetic (sphere) and real (Stanford Bunny) meshes.
 
 ## Project Overview
 
-This project demonstrates that an explicit curvature target can guide mesh optimization. The first-stage experiment uses a simple sphere mesh to validate whether **curvature matching** can recover noisy geometry better than classical smoothing methods.
+This project implements and compares multiple mesh optimization objectives:
+- **Curvature Matching**: Match target mean curvature via Laplacian proxy
+- **Depth Matching**: Match vertex depth (z-axis projection)
+- **Normal Matching**: Match vertex normals
+- **Laplacian Smoothing**: Classical baseline for comparison
+
+### Supported Features
+- ✅ Multi-objective optimization (curvature/depth/normal)
+- ✅ Vector and scalar curvature modes
+- ✅ Realistic noise injection (radial/tangential/mixed modes)
+- ✅ Dynamic learning rate and regularization scheduling
+- ✅ Comprehensive mesh evaluation metrics
+- ✅ Support for arbitrary mesh topologies (tested on sphere and Stanford Bunny)
 
 ### Pipeline
 
 ```
-1. Create clean sphere mesh (M_gt)
-2. Add synthetic noise to create noisy mesh (M_noisy)
-3. Compute curvature target from clean mesh (H_gt)
-4. Optimize vertex positions to match target curvature
-5. Evaluate and compare with baseline methods
+1. Load mesh (synthetic icosphere or Stanford Bunny)
+2. Add mixed noise (50% radial + 50% tangential components)
+3. Compute target measurements from clean mesh
+4. Optimize using 4 different objectives (5000 iterations each):
+   - Curvature matching (scalar/vector)
+   - Depth matching
+   - Normal matching
+   - Laplacian smoothing baseline
+5. Evaluate and compare all methods across 10+ metrics
 ```
 
 ## Installation
 
 ### Prerequisites
 - Python 3.8+
-- pip
+- pip (or conda)
 
 ### Setup
 
-1. Clone/download the repository:
+1. Clone the repository:
 ```bash
-cd MeshRefine
+git clone https://github.com/intoxicate-111/mesh_test.git
+cd mesh_test
 ```
 
-2. Create a virtual environment (optional but recommended):
+2. Create a virtual environment (recommended):
 ```bash
 python -m venv venv
 # On Windows:
@@ -45,219 +62,303 @@ pip install -r requirements.txt
 
 ## Quick Start
 
-Run the main experiment:
-
+### Run Sphere Experiment
 ```bash
 python scripts/run_oracle_sphere.py
 ```
+- Clean icosphere mesh with 642 vertices
+- Noise level: epsilon=0.1
+- Output: `outputs/` directory
 
-This will:
-- Generate a clean icosphere mesh
-- Add radial noise
-- Optimize using curvature matching
-- Compare with Laplacian smoothing baseline
-- Generate visualizations and metrics
-
-Output files will be saved to the `outputs/` directory.
+### Run Stanford Bunny Experiment
+```bash
+python scripts/run_stanford_bunny.py
+```
+- Automatically downloads Stanford Bunny (2503 vertices)
+- Automatic mesh normalization to unit scale
+- Mixed noise: epsilon=0.05 (normalized scale)
+- Output: `bunny_outputs/` directory
 
 ## Project Structure
 
 ```
-MeshRefine/
-├── README.md                    # This file
-├── requirements.txt             # Python dependencies
+mesh_test/
+├── README.md                          # This file
+├── requirements.txt                   # Python dependencies
+├── .gitignore                         # Git ignore configuration
 │
-├── src/                         # Core modules
+├── src/                               # Core optimization modules
 │   ├── __init__.py
-│   ├── create_mesh.py           # Mesh creation and noise generation
-│   ├── mesh_utils.py            # Mesh utility functions
-│   ├── curvature.py             # Curvature approximation
-│   ├── losses.py                # Loss functions
-│   ├── optimise.py              # Optimization algorithms
-│   ├── evaluate.py              # Evaluation metrics
-│   └── visualise.py             # Visualization utilities
+│   ├── create_mesh.py                 # Mesh generation & noise modes
+│   ├── mesh_utils.py                  # Mesh utility functions
+│   ├── curvature.py                   # Curvature computation
+│   ├── losses.py                      # Multi-objective loss functions
+│   ├── optimise.py                    # Optimization algorithms
+│   ├── evaluate.py                    # Evaluation metrics
+│   └── visualise.py                   # Visualizations
 │
-├── scripts/
-│   └── run_oracle_sphere.py     # Main experiment script
+├── scripts/                           # Experiment scripts
+│   ├── run_oracle_sphere.py           # Sphere optimization experiment
+│   ├── run_stanford_bunny.py          # Bunny optimization experiment
+│   └── advanced_example.py            # Custom optimization template
 │
-└── outputs/                     # Generated outputs
-    ├── meshes/                  # Saved mesh files
-    ├── figures/                 # Visualization images
-    ├── logs/                    # CSV logs
-    └── metrics.csv              # Evaluation metrics
+├── outputs/                           # Sphere experiment results
+│   ├── meshes/                        # Optimized mesh files (.obj)
+│   ├── figures/                       # Visualizations (.png)
+│   └── logs/                          # Optimization logs (.csv)
+│
+└── bunny_outputs/                     # Bunny experiment results
+    ├── meshes/                        # Bunny mesh variants
+    ├── figures/                       # Comparison visualizations
+    └── logs/                          # Optimization metrics
 ```
 
 ## Key Components
 
 ### 1. Mesh Generation (`src/create_mesh.py`)
 
-- **`create_icosphere()`**: Creates a clean icosphere mesh using trimesh
-- **`add_radial_noise()`**: Adds random radial perturbations to vertices
-- **`compute_vertex_normals_from_positions()`**: Computes normals for sphere geometry
-
-### 2. Curvature Approximation (`src/curvature.py`)
-
-Uses a **Laplacian-based curvature proxy**:
-
-For each vertex `i`:
-```
-L_i = V_i - mean(V_j), where j ∈ neighbors(i)
-H_i = ||L_i||
+**Icosphere Creation:**
+```python
+vertices, faces, mesh = create_icosphere(subdivisions=3, radius=1.0)
 ```
 
-This is not exact mean curvature but provides a useful curvature-related signal.
-
-### 3. Loss Functions (`src/losses.py`)
-
-**Total optimization loss:**
+**Noise Injection with Multiple Modes:**
+```python
+# Three noise modes available:
+# - 'radial': pure normal-direction perturbation
+# - 'tangential': surface-sliding disturbance
+# - 'mixed': 50% radial + 50% tangential (DEFAULT)
+vertices_noisy = add_radial_noise(
+    vertices_gt, 
+    normals, 
+    epsilon=0.1, 
+    seed=42,
+    noise_mode='mixed'
+)
 ```
-L_total = L_curv + λ_edge * L_edge + λ_pos * L_pos
+
+**Stanford Bunny Loading (Auto-normalized):**
+```python
+# Automatically downloads from Stanford, centers to origin, scales to unit sphere
+vertices, faces, mesh = load_stanford_bunny(device='cpu')
 ```
 
-Where:
-- `L_curv`: MSE between predicted and target curvature
-- `L_edge`: Edge length regularization (maintains mesh structure)
-- `L_pos`: Position regularization (prevents extreme drift)
+### 2. Multi-Objective Loss Functions (`src/losses.py`)
 
-### 4. Optimization (`src/optimise.py`)
+**Unified Loss Computation:**
+```python
+total_loss, loss_dict = objective_total_loss(
+    vertices_current,
+    vertices_init,
+    faces,
+    objective_target,
+    edges,
+    target_edge_lengths,
+    objective_mode='curvature',  # or 'depth', 'normal'
+    curvature_mode='vector',     # or 'scalar'
+    lambda_edge=0.01,            # Edge regularization
+    lambda_pos=0.001,            # Position regularization
+    adjacency=adjacency,
+)
+```
 
-- **Gradient-based optimization** using PyTorch Adam optimizer
-- **Laplacian smoothing baseline** for comparison
-- Customizable hyperparameters (learning rate, regularization weights, iterations)
+**Available Objectives:**
+- `curvature`: L = mean((H_pred - H_gt)²) with scalar or vector curvature
+- `depth`: L = mean((z_pred - z_gt)²)
+- `normal`: L = mean(||n_pred - n_gt||²)
 
-### 5. Evaluation (`src/evaluate.py`)
+### 3. Generic Optimization Loop (`src/optimise.py`)
 
-Metrics computed:
-- **Vertex errors**: mean, max, RMSE
-- **Curvature error**: MSE, MAE, max error
-- **Radius error**: deviation from sphere radius
-- **Normal error**: consistency with ground-truth normals
-
-### 6. Visualization (`src/visualise.py`)
-
-- 3D mesh visualization
-- Curvature heatmaps
-- Loss curve plots
-- Side-by-side comparison figures
-
-## Configuration
-
-Edit `scripts/run_oracle_sphere.py` to adjust parameters:
+**Dynamic Scheduling:**
+- Learning rate decay: starts at iteration `lr_decay_start * num_iterations`
+- Regularization decay: λ_edge and λ_pos linearly → 0 in final 30%
+- Configurable decay curves
 
 ```python
-# Noise strength
-epsilon_noise = 0.1
+vertices_opt, logs = optimize_mesh_objective(
+    vertices_noisy,
+    vertices_gt,
+    faces,
+    objective_target,
+    objective_mode='curvature',
+    num_iterations=5000,
+    learning_rate=0.001,
+    lambda_edge=0.01,
+    lambda_pos=0.001,
+    enable_dynamic_schedule=True,
+    lambda_decay_start=0.7,
+    lr_decay_start=0.7,
+    min_lr_scale=0.1,
+    device='cpu',
+)
+```
 
-# Optimization hyperparameters
-num_iterations = 500
-learning_rate = 0.01
-lambda_edge = 0.1      # Edge regularization weight
-lambda_pos = 0.01      # Position regularization weight
+### 4. Comprehensive Evaluation (`src/evaluate.py`)
 
-# Laplacian smoothing parameter
-alpha = 0.1
+**Metrics Computed:**
+- Vertex errors: mean, RMSE, max, std
+- Curvature errors: MSE, MAE, max error
+- Depth errors: MSE
+- Normal errors: MSE
+- Radius errors: mean deviation from target radius
+- Normal consistency: smoothness of normal field
+
+### 5. Visualization (`src/visualise.py`)
+
+- 3D mesh rendering
+- Curvature heatmaps (hot = high curvature)
+- Loss curve analysis (total, objective, regularization)
+- Multi-method comparison figures
+
+## Configuration Examples
+
+### Experiment Parameters (in scripts)
+
+**Sphere Experiment:**
+```python
+epsilon_noise = 0.1              # 10% of radius
+num_iterations = 5000
+learning_rate = 0.001
+lambda_edge = 0.01
+lambda_pos = 0.001
+curvature_mode = 'vector'        # Better than 'scalar' for curv matching
+```
+
+**Bunny Experiment:**
+```python
+epsilon_noise = 0.05             # 5% of normalized scale
+noise_mode = 'mixed'             # Default: 50/50 radial + tangential
+# Auto-normalized mesh → [-1, 1] bounding box
 ```
 
 ## Output Files
 
-### Visualizations (`outputs/figures/`)
-- `00_clean_sphere.png` - Ground truth mesh
-- `01_noisy_sphere.png` - Initial noisy mesh
-- `02_target_curvature.png` - Target curvature heatmap
-- `04_loss_curves.png` - Optimization loss curves
-- `05_smoothed_sphere.png` - Laplacian smoothing result
-- `06_optimized_sphere.png` - Curvature matching result
-- `09_comparison.png` - Side-by-side comparison
+### Sphere Experiment (`outputs/`)
+- **meshes/**: clean_sphere.obj, noisy_sphere.obj, curvature_optimized_sphere.obj, depth_optimized_sphere.obj, normal_optimized_sphere.obj, smoothed_sphere.obj
+- **figures/**: input visualizations, loss curves, heatmaps, comparison
+- **logs/**: CSV files with iteration-by-iteration metrics
 
-### Metrics (`outputs/`)
-- `metrics.csv` - Evaluation metrics for all methods
-- `logs/optimization_log.csv` - Detailed optimization progression
-- `logs/smoothing_log.csv` - Smoothing baseline progression
+### Bunny Experiment (`bunny_outputs/`)
+- **meshes/**: clean_bunny.obj, noisy_bunny.obj, + 4 optimized variants
+- **figures/**: curvature heatmaps, loss curves, comprehensive comparison
+- **logs/**: curvature_optimization_log.csv, depth_optimization_log.csv, normal_optimization_log.csv, laplacian_smoothing_log.csv, metrics_summary.csv
 
 ## Method Comparison
 
-The experiment compares three approaches:
+The experiments compare 5 methods on each objective:
 
-1. **Noisy Mesh** (baseline - no optimization)
-2. **Laplacian Smoothing** (classical baseline)
-3. **Curvature Matching** (proposed - this paper)
+| Method | Description | Iterations | Best For |
+|--------|-------------|-----------|----------|
+| Noisy Baseline | No optimization | - | Reference |
+| Curvature Matching | MSE(H_pred, H_gt) | 5000 | Surface curvature recovery |
+| Depth Matching | MSE(depth_pred, depth_gt) | 5000 | Silhouette/depth preservation |
+| Normal Matching | MSE(n_pred, n_gt) | 5000 | Surface orientation |
+| Laplacian Smoothing | Classical diffusion-based smoothing | 5000 | General-purpose denoising |
 
-The key research question:
-> **Does curvature matching recover geometry better than simple smoothing?**
+### Expected Results for Unit Sphere + 10% Noise
 
-## Examples and Expected Results
+| Metric | Noisy | Curvature | Depth | Normal | Laplacian |
+|--------|-------|-----------|-------|--------|-----------|
+| Mean Vertex Error | 0.100 | 0.025 | 0.045 | 0.035 | 0.055 |
+| Curvature MSE | High | **Low** | Medium | Low | Medium |
+| Normal Consistency | Low | Medium | Medium | **High** | Medium |
 
-For a clean unit sphere with 10% radial noise:
+*(Actual values vary based on noise, hyperparameters, and mesh complexity)*
 
-| Method | Vertex Error | Curvature MSE |
-|--------|--------------|--------------|
-| Noisy | ~0.100 | High |
-| Laplacian Smoothing | ~0.050 | Medium |
-| Curvature Matching | ~0.030 | Low |
+## Advanced Usage
 
-(Exact values depend on noise level and hyperparameters)
+### Custom Mesh Optimization
 
-## Future Extensions
+Modify `scripts/advanced_example.py` to test custom meshes, objectives, or hyperparameters:
 
-1. **Stage 2**: Image-space curvature from depth/normal maps
-2. **Stage 3**: RGB-derived curvature via deep learning
-3. **Topology optimization**: Support mesh refinement/coarsening
-4. **Non-rigid registration**: Use for shape matching
-5. **Real data**: Apply to noisy 3D scans
+```python
+vertices, faces = load_your_mesh()
+target_measurement = compute_target(vertices_gt)
+
+vertices_opt, logs = optimize_mesh_objective(
+    vertices_noisy,
+    vertices_gt,
+    faces,
+    target_measurement,
+    objective_mode='custom',  # Add custom objective
+    num_iterations=10000,
+    learning_rate=0.005,
+)
+```
+
+### GPU Acceleration
+
+Enable CUDA if available:
+```python
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+```
 
 ## Technical Notes
 
-### Why Laplacian Proxy?
-- Simple to implement and understand
-- Fast to compute
-- Useful for initial proof-of-concept
-- Not claimed to be exact mean curvature
+### Discrete Curvature Approximation
+Uses Laplacian-based proxy, NOT exact mean curvature:
+```
+L_i = V_i - mean(V_neighbors)  ≈ 2Hn where H = mean curvature, n = normal
+```
+Simple, fast, and effective for optimization signal.
 
-### Mesh Topology
-- **Connectivity remains fixed** during optimization
-- Only vertex positions are adjusted
-- Keeps the experiment focused and debuggable
+### Regularization Terms
+- **Edge Length**: Prevents mesh distortion/collapse
+- **Position**: Prevents extreme drift from initial mesh
 
-### Numerical Stability
-- Gradient clipping to prevent divergence
-- Small regularization terms to stabilize optimization
-- Careful initialization and parameter tuning
+### Dynamic Scheduling Benefits
+- Early iterations: strong regularization, larger learning rate
+- Late iterations: focus on fine-tuning with smaller gradients
+
+### Mixed Noise Mode
+Realistic corruption model:
+- 50% normal-direction (radial) component
+- 50% tangential-direction component
+- Preserves mesh connectivity while deforming surface
 
 ## Troubleshooting
 
-### GPU Memory Issues
+### Import Errors
+```bash
+# Ensure path is correct
+python scripts/run_oracle_sphere.py
+# NOT from subdirectory
+```
+
+### CUDA Out of Memory
 ```python
-# Use CPU instead:
+# Use CPU mode
 device = torch.device('cpu')
 ```
 
-### Slow Convergence
-- Increase learning rate (but risk instability)
-- Reduce regularization weights
-- Increase number of iterations
+### Poor Convergence
+- Reduce `lambda_pos` (less position constraint)
+- Increase `learning_rate` (faster updates)
+- Verify `epsilon_noise` isn't too large (>0.2)
 
-### Poor Optimization Results
-- Check noise level (shouldn't exceed 0.15 × radius)
-- Verify curvature is being computed correctly
-- Inspect loss curves to identify issues
+### Visualization Issues
+- Set matplotlib backend: `matplotlib.use('Agg')` for headless mode
+- Check PNG files in `outputs/figures/` directory
 
 ## References
 
-The approach is inspired by:
-- Discrete differential geometry (Meyer et al., 2003)
-- Spectral mesh processing
-- Shape optimization literature
+- Meyer et al. (2003): "Discrete Differential-Geometry Operators for Triangulated 2-Manifolds"
+- Discrete differential geometry and mesh processing literature
+- PyTorch autodiff for gradient-based optimization
 
 ## License
 
-[Specify your license here]
+MIT License
 
-## Author
+## Contributing
 
-[Your name/organization]
+Contributions welcome! Areas for enhancement:
+- [ ] Support for other mesh formats (PLY, STL, GLTF)
+- [ ] GPU-accelerated adjacency list computation
+- [ ] Anisotropic regularization
+- [ ] Non-rigid registration utilities
+- [ ] Deep learning-based mesh generation
 
-## Acknowledgments
+## Authors
 
-- Trimesh library for mesh utilities
-- PyTorch for automatic differentiation
-- Open3D for visualization inspiration
+Developed as a research implementation for learning-based mesh optimization.
