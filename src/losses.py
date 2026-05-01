@@ -7,7 +7,7 @@ from src.create_mesh import compute_vertex_normals_from_positions
 from src.mesh_utils import get_edge_lengths_tensor
 
 
-def curvature_scalar_loss(vertices, faces, curvature_target, adjacency=None):
+def curvature_scalar_loss(vertices, faces, curvature_target, adjacency=None, edges=None):
     """
     Scalar curvature matching loss.
     
@@ -22,11 +22,11 @@ def curvature_scalar_loss(vertices, faces, curvature_target, adjacency=None):
     Returns:
         loss: scalar tensor
     """
-    curvature_pred = compute_laplacian_curvature_proxy(vertices, faces, adjacency)
+    curvature_pred = compute_laplacian_curvature_proxy(vertices, faces, adjacency=adjacency, edges=edges)
     return torch.mean((curvature_pred - curvature_target) ** 2)
 
 
-def curvature_vector_loss(vertices, faces, h_target, adjacency=None):
+def curvature_vector_loss(vertices, faces, h_target, adjacency=None, edges=None):
     """
     Vector curvature matching loss.
 
@@ -42,11 +42,11 @@ def curvature_vector_loss(vertices, faces, h_target, adjacency=None):
     Returns:
         loss: scalar tensor
     """
-    h_pred = compute_laplacian_curvature_vector(vertices, faces, adjacency)
+    h_pred = compute_laplacian_curvature_vector(vertices, faces, adjacency=adjacency, edges=edges)
     return torch.mean(torch.sum((h_pred - h_target) ** 2, dim=1))
 
 
-def curvature_loss(vertices, faces, curvature_target, adjacency=None, curvature_mode='scalar'):
+def curvature_loss(vertices, faces, curvature_target, adjacency=None, curvature_mode='scalar', edges=None):
     """
     Unified curvature loss wrapper.
 
@@ -54,9 +54,9 @@ def curvature_loss(vertices, faces, curvature_target, adjacency=None, curvature_
         curvature_mode: 'scalar' to match |Delta V|, 'vector' to match Delta V.
     """
     if curvature_mode == 'scalar':
-        return curvature_scalar_loss(vertices, faces, curvature_target, adjacency)
+        return curvature_scalar_loss(vertices, faces, curvature_target, adjacency=adjacency, edges=edges)
     if curvature_mode == 'vector':
-        return curvature_vector_loss(vertices, faces, curvature_target, adjacency)
+        return curvature_vector_loss(vertices, faces, curvature_target, adjacency=adjacency, edges=edges)
     raise ValueError(f"Unsupported curvature_mode: {curvature_mode}. Use 'scalar' or 'vector'.")
 
 
@@ -181,6 +181,7 @@ def total_loss(vertices_current,
         curvature_target,
         adjacency=adjacency,
         curvature_mode=curvature_mode,
+        edges=edges,
     )
     l_edge = edge_length_regularization(vertices_current, edges, target_edge_lengths)
     l_pos = position_regularization(vertices_current, vertices_init)
@@ -219,6 +220,7 @@ def objective_total_loss(vertices_current,
             objective_target,
             adjacency=adjacency,
             curvature_mode=curvature_mode,
+            edges=edges,
         )
     elif objective_mode == 'depth':
         l_obj = depth_loss(vertices_current, objective_target, view_direction=view_direction)

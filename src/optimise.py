@@ -22,8 +22,10 @@ def optimize_mesh_objective(
     lambda_edge=0.1,
     lambda_pos=0.01,
     enable_dynamic_schedule=True,
-    lambda_decay_start=0.7,
-    lr_decay_start=0.4,
+    plateau_patience=50,
+    plateau_min_delta=1e-5,
+    decay_factor=0.5,
+    lambda_zero_threshold=1e-4,
     min_lr_scale=0.1,
     device='cpu',
     verbose=True,
@@ -40,28 +42,14 @@ def optimize_mesh_objective(
 
     optimizer = optim.Adam([vertices_opt], lr=learning_rate)
     logs = []
+    best_loss = None
+    epochs_since_improvement = 0
+    min_learning_rate = learning_rate * min_lr_scale
+    current_lambda_edge = lambda_edge
+    current_lambda_pos = lambda_pos
 
     for iteration in range(num_iterations):
-        progress = iteration / max(1, num_iterations - 1)
-
-        current_lambda_edge = lambda_edge
-        current_lambda_pos = lambda_pos
-        current_lr = learning_rate
-
-        if enable_dynamic_schedule:
-            if progress > lambda_decay_start:
-                t_lambda = (progress - lambda_decay_start) / max(1e-8, 1.0 - lambda_decay_start)
-                lambda_scale = max(0.0, 1.0 - t_lambda)
-                current_lambda_edge = lambda_edge * lambda_scale
-                current_lambda_pos = lambda_pos * lambda_scale
-
-            if progress > lr_decay_start:
-                t_lr = (progress - lr_decay_start) / max(1e-8, 1.0 - lr_decay_start)
-                lr_scale = 1.0 - (1.0 - min_lr_scale) * t_lr
-                current_lr = learning_rate * max(min_lr_scale, lr_scale)
-
-            for param_group in optimizer.param_groups:
-                param_group['lr'] = current_lr
+        current_lr = optimizer.param_groups[0]['lr']
 
         optimizer.zero_grad()
 
@@ -84,14 +72,38 @@ def optimize_mesh_objective(
         torch.nn.utils.clip_grad_norm_([vertices_opt], max_norm=0.1)
         optimizer.step()
 
+        loss_value = loss.item()
+
+        if best_loss is None or loss_value < (best_loss - plateau_min_delta):
+            best_loss = loss_value
+            epochs_since_improvement = 0
+        else:
+            epochs_since_improvement += 1
+
+        if enable_dynamic_schedule and epochs_since_improvement >= plateau_patience:
+            current_lr = max(current_lr * decay_factor, min_learning_rate)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = current_lr
+
+            current_lambda_edge = max(current_lambda_edge * decay_factor, 0.0)
+            current_lambda_pos = max(current_lambda_pos * decay_factor, 0.0)
+
+            # Aggressive test: zero out small regularizers
+            if current_lambda_edge <= lambda_zero_threshold:
+                current_lambda_edge = 0.0
+            if current_lambda_pos <= lambda_zero_threshold:
+                current_lambda_pos = 0.0
+
+            epochs_since_improvement = 0
+
         vertex_error = torch.mean(torch.norm(vertices_opt - vertices_gt, dim=1)).item()
 
         if objective_mode == 'curvature':
             if curvature_mode == 'scalar':
-                objective_current = compute_laplacian_curvature_proxy(vertices_opt, faces, adjacency)
+                objective_current = compute_laplacian_curvature_proxy(vertices_opt, faces, adjacency=adjacency, edges=edges)
                 objective_mse = torch.mean((objective_current - objective_target) ** 2).item()
             else:
-                objective_current = compute_laplacian_curvature_vector(vertices_opt, faces, adjacency)
+                objective_current = compute_laplacian_curvature_vector(vertices_opt, faces, adjacency=adjacency, edges=edges)
                 objective_mse = torch.mean(torch.sum((objective_current - objective_target) ** 2, dim=1)).item()
         elif objective_mode == 'depth':
             if view_direction is None:
@@ -113,6 +125,8 @@ def optimize_mesh_objective(
             'lr': current_lr,
             'lambda_edge_current': current_lambda_edge,
             'lambda_pos_current': current_lambda_pos,
+            'best_loss': best_loss,
+            'epochs_since_improvement': epochs_since_improvement,
             'vertex_error': vertex_error,
             'objective_mse': objective_mse,
         }
@@ -140,8 +154,10 @@ def optimize_mesh_curvature(
     lambda_edge=0.1,
     lambda_pos=0.01,
     enable_dynamic_schedule=True,
-    lambda_decay_start=0.7,
-    lr_decay_start=0.7,
+    plateau_patience=50,
+    plateau_min_delta=1e-5,
+    decay_factor=0.5,
+    lambda_zero_threshold=1e-4,
     min_lr_scale=0.1,
     device='cpu',
     verbose=True
@@ -182,8 +198,10 @@ def optimize_mesh_curvature(
         lambda_edge=lambda_edge,
         lambda_pos=lambda_pos,
         enable_dynamic_schedule=enable_dynamic_schedule,
-        lambda_decay_start=lambda_decay_start,
-        lr_decay_start=lr_decay_start,
+        plateau_patience=plateau_patience,
+        plateau_min_delta=plateau_min_delta,
+        decay_factor=decay_factor,
+        lambda_zero_threshold=lambda_zero_threshold,
         min_lr_scale=min_lr_scale,
         device=device,
         verbose=verbose,
@@ -229,7 +247,7 @@ def laplacian_smoothing_baseline(
         # Compute metrics
         vertex_error = torch.mean(torch.norm(vertices_current - vertices_gt, dim=1)).item()
         curvature_current = compute_laplacian_curvature_proxy(vertices_current, faces, adjacency)
-        curvature_gt = compute_laplacian_curvature_proxy(vertices_gt, faces, adjacency)
+        curvature_gt = compute_laplacian_curvature_proxy(vertices_gt, faces, adjacency=adjacency)
         curvature_mse = torch.mean((curvature_current - curvature_gt) ** 2).item()
         
         log_dict = {

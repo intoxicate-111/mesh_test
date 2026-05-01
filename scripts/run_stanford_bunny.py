@@ -148,6 +148,7 @@ def main():
     # Curvature loss mode for optimisation: 'scalar' or 'vector'
     curvature_mode = 'vector'
     view_direction = torch.tensor([0.0, 0.0, 1.0], device=device)
+    lambda_zero_threshold = 1e-4
     
     # ========== MESH LOADING ==========
     print("-" * 80)
@@ -227,8 +228,10 @@ def main():
         lambda_edge=0.01,
         lambda_pos=0.001,
         enable_dynamic_schedule=True,
-        lambda_decay_start=0.7,
-        lr_decay_start=0.7,
+        plateau_patience=50,
+        plateau_min_delta=1e-5,
+        decay_factor=0.5,
+        lambda_zero_threshold=lambda_zero_threshold,
         min_lr_scale=0.1,
         device=device,
         verbose=True
@@ -264,8 +267,10 @@ def main():
         lambda_edge=0.01,
         lambda_pos=0.001,
         enable_dynamic_schedule=True,
-        lambda_decay_start=0.7,
-        lr_decay_start=0.7,
+        plateau_patience=50,
+        plateau_min_delta=1e-5,
+        decay_factor=0.5,
+        lambda_zero_threshold=lambda_zero_threshold,
         min_lr_scale=0.1,
         device=device,
         verbose=True
@@ -299,8 +304,10 @@ def main():
         lambda_edge=0.01,
         lambda_pos=0.001,
         enable_dynamic_schedule=True,
-        lambda_decay_start=0.7,
-        lr_decay_start=0.7,
+        plateau_patience=50,
+        plateau_min_delta=1e-5,
+        decay_factor=0.5,
+        lambda_zero_threshold=lambda_zero_threshold,
         min_lr_scale=0.1,
         device=device,
         verbose=True
@@ -401,18 +408,29 @@ def main():
     
     # Save visualization comparison
     print("\n6.4 Creating comparison visualization...")
-    all_meshes = {
-        'Noisy': (vertices_noisy, faces),
-        'Curvature': (vertices_optimized, faces),
-        'Depth': (vertices_depth, faces),
-        'Normal': (vertices_normal, faces),
-        'Laplacian': (vertices_smoothed, faces),
+    comparison_vertices = {
+        'Noisy': vertices_noisy,
+        'Curvature': vertices_optimized,
+        'Depth': vertices_depth,
+        'Normal': vertices_normal,
+        'Laplacian': vertices_smoothed,
     }
     
     # Create comparison figures for each objective's optimized mesh
     fig_path = figures_dir / "07_comparison_all_methods.png"
-    create_comparison_figure(all_meshes, title="All Optimization Methods Comparison", 
-                           save_path=fig_path)
+    create_comparison_figure(
+        comparison_vertices,
+        faces,
+        titles=[
+            'Noisy Input',
+            'Curvature-Matched',
+            'Depth-Matched',
+            'Normal-Matched',
+            'Laplacian Smoothed',
+        ],
+        save_path=fig_path,
+        figsize=(24, 5),
+    )
     print(f"    Saved comparison figure to {fig_path}")
     
     print("\n" + "-" * 80)
