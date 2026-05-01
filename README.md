@@ -362,3 +362,13 @@ Contributions welcome! Areas for enhancement:
 ## Authors
 
 Developed as a research implementation for learning-based mesh optimization.
+
+## Recent Changes
+
+- Vectorized curvature computation: replaced per-vertex Python loops with a batched, edge-based aggregation using `scatter_add_`. This reduces Python-level autograd graph overhead and significantly speeds up optimization on large meshes. (See `src/curvature.py`.)
+- Default dynamic schedule enabled: the CLI now enables adaptive scheduling by default for `run_custom_mesh.py` (use `--disable-schedule` to turn off). Decay start defaults were changed to be more aggressive where appropriate.
+- Plateau-based adaptive decay: learning rate and regularizers now decay when the objective plateaus (default patience 50 iterations, configurable via CLI). This is implemented in `src/optimise.py` and replaces the previous epoch-ratio forced decay.
+- Lambda zero-threshold: added an experimental aggressive option to zero `lambda_edge` and/or `lambda_pos` when they fall below a threshold after decay (`--lambda-zero-threshold`), intended for ablation testing.
+- New CLI flags: `--enable-schedule`/`--disable-schedule`, `--plateau-patience`, `--plateau-min-delta`, `--decay-factor`, and `--lambda-zero-threshold` (see `scripts/run_custom_mesh.py`).
+
+If you run into issues after these changes, please open an issue with the experiment command and log files from `outputs/` or `bunny_outputs/`.
