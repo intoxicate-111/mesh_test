@@ -40,6 +40,13 @@ def parse_args():
     parser.add_argument("--mesh", type=str, required=True, help="Path to input mesh file (obj/ply/stl).")
     parser.add_argument("--output", type=str, default="outputs/custom_mesh", help="Output directory.")
 
+    parser.add_argument("--init-mode", type=str, default="noisy",
+                        choices=["noisy", "sphere", "random_sphere"],
+                        help="How to initialize the optimization mesh while keeping GT topology.")
+    parser.add_argument("--sphere-radius-mode", type=str, default="unit",
+                        choices=["mean", "unit"],
+                        help="Radius to use for sphere/random-sphere initialization.")
+
     parser.add_argument("--objective", type=str, default="curvature",
                         choices=["curvature", "depth", "normal"], help="Optimization objective.")
     parser.add_argument("--curvature-mode", type=str, default="vector",
@@ -186,14 +193,43 @@ def main():
 
     normals_gt = compute_vertex_normals_from_positions(vertices_gt, faces)
 
-    print("Adding noise...")
-    vertices_noisy = add_radial_noise(
-        vertices_gt,
-        normals_gt,
-        epsilon=args.epsilon,
-        seed=args.seed,
-        noise_mode=args.noise_mode,
-    )
+    if args.init_mode == "noisy":
+        print("Adding noise...")
+        vertices_noisy = add_radial_noise(
+            vertices_gt,
+            normals_gt,
+            epsilon=args.epsilon,
+            seed=args.seed,
+            noise_mode=args.noise_mode,
+        )
+    elif args.init_mode == "sphere":
+        print("Initializing from sphere (GT topology)...")
+        radii = torch.norm(vertices_gt, dim=1, keepdim=True).clamp_min(1e-8)
+        if args.sphere_radius_mode == "mean":
+            sphere_radius = torch.mean(radii)
+        else:
+            sphere_radius = torch.tensor(1.0, device=device)
+        vertices_noisy = vertices_gt / radii * sphere_radius
+        print(f"  Sphere radius mode: {args.sphere_radius_mode}")
+        print(f"  Sphere radius: {sphere_radius.item():.6f}")
+    elif args.init_mode == "random_sphere":
+        print("Initializing from random sphere (GT topology)...")
+        torch.manual_seed(args.seed)
+        random_dirs = torch.randn_like(vertices_gt)
+        random_dirs = random_dirs / (torch.norm(random_dirs, dim=1, keepdim=True) + 1e-8)
+        if args.sphere_radius_mode == "mean":
+            sphere_radius = torch.mean(torch.norm(vertices_gt, dim=1, keepdim=True))
+        else:
+            sphere_radius = torch.tensor(1.0, device=device)
+        vertices_noisy = random_dirs * sphere_radius
+        print(f"  Sphere radius mode: {args.sphere_radius_mode}")
+        print(f"  Sphere radius: {sphere_radius.item():.6f}")
+        print(f"  Init seed: {args.seed}")
+    else:
+        raise ValueError(f"Unsupported init-mode: {args.init_mode}")
+
+    if args.init_mode != "noisy":
+        print("GT topology is preserved: faces are unchanged from the input mesh.")
 
     if args.curvature_graph_mode == "minimum_ball":
         edges_gt, edge_w_gt, _ = build_minimum_ball_graph(
