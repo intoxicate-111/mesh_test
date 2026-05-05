@@ -42,6 +42,164 @@ def compute_adjacency_list(faces, num_verts):
     return adjacency
 
 
+def build_knn_graph(vertices, k=16, chunk_size=2048):
+    """
+    Build an undirected k-NN graph from point positions.
+
+    Args:
+        vertices: torch tensor of shape (V, 3)
+        k: number of neighbors per vertex
+        chunk_size: chunk size for distance computation
+
+    Returns:
+        edges: torch tensor of shape (E, 2)
+    """
+    if not torch.is_tensor(vertices):
+        vertices = torch.as_tensor(vertices, dtype=torch.float32)
+
+    num_verts = vertices.shape[0]
+    device = vertices.device
+
+    if num_verts <= 1 or k <= 0:
+        return torch.empty((0, 2), dtype=torch.long, device=device)
+
+    k = min(k, num_verts - 1)
+    chunk_size = max(int(chunk_size), 1)
+
+    edges_chunks = []
+    for start in range(0, num_verts, chunk_size):
+        end = min(start + chunk_size, num_verts)
+        chunk = vertices[start:end]
+
+        dist = torch.cdist(chunk, vertices)
+        row_indices = torch.arange(start, end, device=device)
+        dist[torch.arange(end - start, device=device), row_indices] = float('inf')
+
+        knn_idx = torch.topk(dist, k=k, largest=False).indices
+        src = row_indices.unsqueeze(1).expand(-1, k)
+        edges_chunks.append(torch.stack([src.reshape(-1), knn_idx.reshape(-1)], dim=1))
+
+    edges = torch.cat(edges_chunks, dim=0) if edges_chunks else torch.empty((0, 2), dtype=torch.long, device=device)
+    if edges.numel() == 0:
+        return edges
+
+    edges = torch.sort(edges, dim=1).values
+    return torch.unique(edges, dim=0)
+
+
+def build_radius_graph(vertices, radius=0.1, chunk_size=2048):
+    """
+    Build an undirected radius graph from point positions.
+
+    Args:
+        vertices: torch tensor of shape (V, 3)
+        radius: distance threshold
+        chunk_size: chunk size for distance computation
+
+    Returns:
+        edges: torch tensor of shape (E, 2)
+    """
+    if not torch.is_tensor(vertices):
+        vertices = torch.as_tensor(vertices, dtype=torch.float32)
+
+    num_verts = vertices.shape[0]
+    device = vertices.device
+
+    if num_verts <= 1 or radius <= 0:
+        return torch.empty((0, 2), dtype=torch.long, device=device)
+
+    chunk_size = max(int(chunk_size), 1)
+    edges_chunks = []
+
+    for start in range(0, num_verts, chunk_size):
+        end = min(start + chunk_size, num_verts)
+        chunk = vertices[start:end]
+
+        dist = torch.cdist(chunk, vertices)
+        row_indices = torch.arange(start, end, device=device)
+        dist[torch.arange(end - start, device=device), row_indices] = float('inf')
+
+        mask = dist <= radius
+        rows, cols = torch.where(mask)
+        if rows.numel() > 0:
+            src = rows + start
+            edges_chunks.append(torch.stack([src, cols], dim=1))
+
+    edges = torch.cat(edges_chunks, dim=0) if edges_chunks else torch.empty((0, 2), dtype=torch.long, device=device)
+    if edges.numel() == 0:
+        return edges
+
+    edges = torch.sort(edges, dim=1).values
+    return torch.unique(edges, dim=0)
+
+
+def build_min_ball_graph(vertices, k=16, chunk_size=2048):
+    """
+    Build an undirected graph using per-vertex k-NN radius (minimum ball).
+
+    For each vertex i, use the distance to its k-th nearest neighbor as a radius
+    and connect to all vertices within that radius.
+    """
+    if not torch.is_tensor(vertices):
+        vertices = torch.as_tensor(vertices, dtype=torch.float32)
+
+    num_verts = vertices.shape[0]
+    device = vertices.device
+
+    if num_verts <= 1 or k <= 0:
+        return torch.empty((0, 2), dtype=torch.long, device=device)
+
+    k = min(k, num_verts - 1)
+    chunk_size = max(int(chunk_size), 1)
+    edges_chunks = []
+
+    for start in range(0, num_verts, chunk_size):
+        end = min(start + chunk_size, num_verts)
+        chunk = vertices[start:end]
+
+        dist = torch.cdist(chunk, vertices)
+        row_indices = torch.arange(start, end, device=device)
+        dist[torch.arange(end - start, device=device), row_indices] = float('inf')
+
+        knn_dist = torch.topk(dist, k=k, largest=False).values
+        radius = knn_dist[:, -1].unsqueeze(1)
+
+        mask = dist <= radius
+        rows, cols = torch.where(mask)
+        if rows.numel() > 0:
+            src = rows + start
+            edges_chunks.append(torch.stack([src, cols], dim=1))
+
+    edges = torch.cat(edges_chunks, dim=0) if edges_chunks else torch.empty((0, 2), dtype=torch.long, device=device)
+    if edges.numel() == 0:
+        return edges
+
+    edges = torch.sort(edges, dim=1).values
+    return torch.unique(edges, dim=0)
+
+
+def build_dynamic_graph(vertices, mode='knn', k=16, radius=0.1, chunk_size=2048):
+    """
+    Build an undirected graph from point positions.
+
+    Args:
+        mode: 'knn', 'radius', or 'min_ball'
+        k: k for k-NN/min_ball
+        radius: distance threshold for radius graph
+        chunk_size: chunk size for distance computation
+
+    Returns:
+        edges: torch tensor of shape (E, 2)
+    """
+    if mode == 'knn':
+        return build_knn_graph(vertices, k=k, chunk_size=chunk_size)
+    if mode == 'radius':
+        return build_radius_graph(vertices, radius=radius, chunk_size=chunk_size)
+    if mode == 'min_ball':
+        return build_min_ball_graph(vertices, k=k, chunk_size=chunk_size)
+    raise ValueError(f"Unsupported graph mode: {mode}. Use 'knn', 'radius', or 'min_ball'.")
+
+
 def get_edge_lengths(vertices, faces):
     """
     Compute edge lengths for each edge in the mesh.

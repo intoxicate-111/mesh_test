@@ -110,6 +110,50 @@ def compute_laplacian_curvature_vector(vertices, faces, adjacency=None, edges=No
     return laplacian * valid.unsqueeze(1).to(vertices.dtype)
 
 
+def compute_weighted_laplacian_vector(vertices, edges, edge_weights, eps=1e-8):
+    """
+    Compute a weighted Laplacian vector from weighted undirected edges.
+
+    h_i = sum_j w_ij * (v_i - v_j) / (sum_j w_ij + eps)
+    """
+    if edges is None or edges.numel() == 0:
+        return torch.zeros_like(vertices)
+
+    if edge_weights is None or edge_weights.numel() == 0:
+        return compute_laplacian_curvature_vector(vertices, edges=edges, faces=None)
+
+    if edges.dim() != 2 or edges.size(1) != 2:
+        raise ValueError("edges must have shape (E, 2).")
+
+    edge_weights = edge_weights.to(device=vertices.device, dtype=vertices.dtype)
+    num_verts = vertices.shape[0]
+
+    src = edges[:, 0]
+    dst = edges[:, 1]
+
+    sum_w = torch.zeros(num_verts, dtype=vertices.dtype, device=vertices.device)
+    neighbor_sum = torch.zeros_like(vertices)
+
+    sum_w.scatter_add_(0, src, edge_weights)
+    sum_w.scatter_add_(0, dst, edge_weights)
+
+    neighbor_sum.scatter_add_(0, src.unsqueeze(1).expand(-1, 3), vertices[dst] * edge_weights.unsqueeze(1))
+    neighbor_sum.scatter_add_(0, dst.unsqueeze(1).expand(-1, 3), vertices[src] * edge_weights.unsqueeze(1))
+
+    valid = sum_w > 0
+    mean_neighbor = neighbor_sum / sum_w.clamp_min(eps).unsqueeze(1)
+    laplacian = vertices - mean_neighbor
+    return laplacian * valid.unsqueeze(1).to(vertices.dtype)
+
+
+def compute_weighted_laplacian_curvature_proxy(vertices, edges, edge_weights, eps=1e-8):
+    """
+    Weighted Laplacian curvature magnitude proxy.
+    """
+    laplacian = compute_weighted_laplacian_vector(vertices, edges, edge_weights, eps=eps)
+    return torch.norm(laplacian, dim=1)
+
+
 def compute_laplacian_vector(vertices, faces, adjacency=None, edges=None):
     """
     Backward-compatible alias for compute_laplacian_curvature_vector.
