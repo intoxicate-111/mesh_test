@@ -5,7 +5,7 @@ from collections import deque
 import torch
 import torch.optim as optim
 from src.losses import total_loss, objective_total_loss, laplacian_smoothing_step
-from src.mesh_utils import compute_adjacency_list, get_edge_lengths_tensor, build_dynamic_graph
+from src.mesh_utils import build_edges_from_faces, build_dynamic_graph
 from src.curvature import (
     compute_laplacian_curvature_proxy,
     compute_laplacian_curvature_vector,
@@ -78,8 +78,12 @@ def optimize_mesh_objective(
     )
 
     if connectivity_mode == 'faces':
-        adjacency = compute_adjacency_list(faces, num_verts)
-        edges, target_edge_lengths = get_edge_lengths_tensor(vertices_noisy, faces)
+        # Use GPU-friendly edge construction to avoid per-iter CPU work.
+        edges = build_edges_from_faces(faces).to(device=vertices_opt.device)
+        if edges.numel() > 0:
+            target_edge_lengths = torch.norm(vertices_noisy[edges[:, 0]] - vertices_noisy[edges[:, 1]], dim=1)
+        else:
+            target_edge_lengths = torch.empty((0,), dtype=vertices_opt.dtype, device=vertices_opt.device)
     elif connectivity_mode == 'dynamic':
         graph_update_interval = max(int(graph_update_interval), 1)
         with torch.no_grad():
@@ -96,7 +100,7 @@ def optimize_mesh_objective(
         raise ValueError(f"Unsupported connectivity_mode: {connectivity_mode}. Use 'faces' or 'dynamic'.")
 
     if curvature_graph_mode == 'mesh':
-        curv_edges = None
+        curv_edges = edges
     elif curvature_graph_mode == 'knn':
         curv_edges = edges
         curv_edge_weights = None
@@ -192,7 +196,7 @@ def optimize_mesh_objective(
             curvature_graph_mode=curvature_graph_mode,
             curvature_edges=curv_edges,
             curvature_edge_weights=curv_edge_weights,
-            adjacency=adjacency,
+            adjacency=None,
         )
 
         loss.backward()
@@ -268,7 +272,7 @@ def optimize_mesh_objective(
                     objective_current = compute_laplacian_curvature_proxy(
                         vertices_opt,
                         faces,
-                        adjacency=adjacency,
+                        adjacency=None,
                         edges=curv_edges,
                     )
                 objective_mse = torch.mean((objective_current - objective_target) ** 2).item()
@@ -283,7 +287,7 @@ def optimize_mesh_objective(
                     objective_current = compute_laplacian_curvature_vector(
                         vertices_opt,
                         faces,
-                        adjacency=adjacency,
+                        adjacency=None,
                         edges=curv_edges,
                     )
                 objective_mse = torch.mean(torch.sum((objective_current - objective_target) ** 2, dim=1)).item()

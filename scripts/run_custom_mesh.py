@@ -284,7 +284,9 @@ def main():
     visualize_curvature_heatmap(vertices_noisy, faces, curvature_noisy,
                                 title="Noisy Curvature", save_path=figures_dir / "03_noisy_curvature.png")
 
+    print("Saving clean mesh...")
     save_mesh(vertices_gt, faces, meshes_dir / "clean_mesh.obj")
+    print("Saving noisy mesh...")
     save_mesh(vertices_noisy, faces, meshes_dir / "noisy_mesh.obj")
 
     print(f"Optimizing objective: {args.objective}")

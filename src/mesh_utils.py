@@ -42,6 +42,32 @@ def compute_adjacency_list(faces, num_verts):
     return adjacency
 
 
+def build_edges_from_faces(faces):
+    """
+    Build unique undirected edges from triangle faces using torch ops.
+
+    Args:
+        faces: torch tensor of shape (F, 3)
+
+    Returns:
+        edges: torch tensor of shape (E, 2)
+    """
+    if faces is None:
+        return torch.empty((0, 2), dtype=torch.long)
+    if not torch.is_tensor(faces):
+        faces = torch.as_tensor(faces, dtype=torch.long)
+
+    if faces.numel() == 0:
+        return torch.empty((0, 2), dtype=torch.long, device=faces.device)
+
+    face_edges = torch.cat(
+        [faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]],
+        dim=0,
+    )
+    face_edges = torch.sort(face_edges, dim=1).values
+    return torch.unique(face_edges, dim=0)
+
+
 def build_knn_graph(vertices, k=16, chunk_size=2048):
     """
     Build an undirected k-NN graph from point positions.
